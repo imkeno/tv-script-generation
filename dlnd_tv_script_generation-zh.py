@@ -237,7 +237,7 @@ tests.test_get_inputs(get_inputs)
 # In[9]:
 
 
-def get_init_cell(batch_size, rnn_size):
+def get_init_cell(batch_size, rnn_size,n_layers=2):
     """
     Create an RNN Cell and initialize it.
     :param batch_size: Size of batches
@@ -245,17 +245,27 @@ def get_init_cell(batch_size, rnn_size):
     :return: Tuple (cell, initialize state)
     """
     # TODO: Implement Function
-    lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
+    #lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
     # Add dropout to the cell
     #drop = tf.contrib.rnn.DropoutWrapper(lstm, output_keep_prob=keep_prob)
     
     # Stack up multiple LSTM layers, for deep learning
     #cell = tf.contrib.rnn.MultiRNNCell([drop] * rnn_size)
     # Stack up multiple LSTM layers, for deep learning
-    cell = tf.contrib.rnn.MultiRNNCell([lstm])
+    #cell = tf.contrib.rnn.MultiRNNCell([lstm])
     
     # Getting an initial state of all zeros
-    initial_state = tf.identity(cell.zero_state(batch_size, tf.float32),name="initial_state")
+    #initial_state = tf.identity(cell.zero_state(batch_size, tf.float32),name="initial_state")
+
+    # basic LSTM cell
+    def make_lstm(rnn_size):
+        return tf.contrib.rnn.BasicLSTMCell(rnn_size)
+    # Stack up multiple LSTM layers, for deep learning
+    cell = tf.contrib.rnn.MultiRNNCell([ make_lstm(rnn_size) for _ in range(n_layers)])
+    # Getting an initial state of all zeros
+    initial_state = cell.zero_state(batch_size, tf.float32)
+    initial_state = tf.identity(initial_state, name='initial_state')
+    #return (cell, initial_state)
     return (cell, initial_state)
 
 
@@ -349,7 +359,7 @@ def build_nn(cell, rnn_size, input_data, vocab_size, embed_dim):
     # TODO: Implement Function
     embed = get_embed(input_data, vocab_size, embed_dim)
     outputs, final_state = build_rnn(cell, embed)
-    logits = tf.contrib.layers.fully_connected(outputs, vocab_size, activation_fn=tf.nn.relu)
+    logits = tf.contrib.layers.fully_connected(outputs, vocab_size, activation_fn=None)
     
     return (logits, final_state)
 
@@ -429,6 +439,28 @@ tests.test_get_batches(get_batches)
 # In[14]:
 
 
+def get_batches(int_text, batch_size, seq_length):
+    n_batches = int(len(int_text) / (batch_size * seq_length))
+    # Drop the last few characters to make only full batches
+    xdata = np.array(int_text[: n_batches * batch_size * seq_length])
+    ydata = np.array(int_text[1: n_batches * batch_size * seq_length + 1])
+    ydata[-1] = xdata[0] # 如果要通过unittest，可以加上此句
+    #print(xdata)
+    #print(xdata.reshape(batch_size, -1))
+    x_batches = np.split(xdata.reshape(batch_size, -1), n_batches, 1)
+    #print(x_batches)
+    y_batches = np.split(ydata.reshape(batch_size, -1), n_batches, 1)
+    #print(y_batches)
+    return np.array(list(zip(x_batches, y_batches)))
+"""
+DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
+"""
+tests.test_get_batches(get_batches)
+
+
+# In[15]:
+
+
 test_array = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,16,17,18,19,20,21,22,23,24,25],dtype=np.int)
 print(get_batches(test_array,2,3))
 
@@ -445,21 +477,21 @@ print(get_batches(test_array,2,3))
 # - 将 `learning_rate` 设置为学习率。
 # - 将 `show_every_n_batches` 设置为神经网络应输出的程序组数量。
 
-# In[21]:
+# In[16]:
 
 
 # Number of Epochs
 num_epochs = 300
 # Batch Size
-batch_size = 3000
+batch_size = 256
 # RNN Size
-rnn_size = 3000
+rnn_size = 256
 # Embedding Dimension Size
-embed_dim = 1500
+embed_dim = 500
 # Sequence Length
-seq_length = 15
+seq_length = 12
 # Learning Rate
-learning_rate = 0.005
+learning_rate = 0.001
 # Show stats for every n number of batches
 show_every_n_batches = 5
 
@@ -472,7 +504,7 @@ save_dir = './save'
 # ### 创建图表
 # 使用你实现的神经网络创建图表。
 
-# In[22]:
+# In[17]:
 
 
 """
@@ -509,7 +541,7 @@ with train_graph.as_default():
 # ## 训练
 # 在预处理数据中训练神经网络。如果你遇到困难，请查看这个[表格](https://discussions.udacity.com/)，看看是否有人遇到了和你一样的问题。
 
-# In[23]:
+# In[18]:
 
 
 """
@@ -560,7 +592,7 @@ helper.save_params((seq_length, save_dir))
 
 # # 检查点
 
-# In[1]:
+# In[2]:
 
 
 """
@@ -586,7 +618,7 @@ seq_length, load_dir = helper.load_params()
 # 
 # 返回下列元组中的 tensor `(InputTensor, InitialStateTensor, FinalStateTensor, ProbsTensor)`
 
-# In[2]:
+# In[3]:
 
 
 def get_tensors(loaded_graph):
@@ -612,7 +644,7 @@ tests.test_get_tensors(get_tensors)
 # ### 选择词汇
 # 实现 `pick_word()` 函数来使用 `probabilities` 选择下一个词汇。
 
-# In[3]:
+# In[6]:
 
 
 def pick_word(probabilities, int_to_vocab):
@@ -623,13 +655,16 @@ def pick_word(probabilities, int_to_vocab):
     :return: String of the predicted word
     """
     # TODO: Implement Function
+    """
     max_prop = probabilities.max()
     for i in range(len(probabilities)):
         if(probabilities[i] == max_prop):
             return int_to_vocab[i]
     print("****")
     return None
-
+    """
+    
+    return np.random.choice(list(int_to_vocab.values()), 1, p=probabilities)[0]
 
 """
 DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE
@@ -640,7 +675,7 @@ tests.test_pick_word(pick_word)
 # ## 生成电视剧剧本
 # 这将为你生成一个电视剧剧本。通过设置 `gen_length` 来调整你想生成的剧本长度。
 
-# In[4]:
+# In[7]:
 
 
 gen_length = 1000
